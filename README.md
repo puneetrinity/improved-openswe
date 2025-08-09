@@ -293,9 +293,6 @@ This project maintains the same license as the original Open SWE project while e
 ## 🙏 **Acknowledgments**
 
 - **Original Open SWE Team** at LangChain for the foundational architecture we enhanced
-- **Princeton and Stanford researchers** for the SWE-agent research that inspired our multi-agent approach
-- **Industry Principal Engineers** whose best practices informed our review capabilities
-- **Enterprise development teams** whose requirements shaped our features
 
 ## 🔗 **Related Projects**
 
