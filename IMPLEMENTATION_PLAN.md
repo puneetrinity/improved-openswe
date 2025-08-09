@@ -517,30 +517,7 @@ gantt
     Multi-modal Features      :2025-08-01, 30d
 ```
 
----
 
-## Budget Estimation
-
-### Development Costs (9 months)
-- **Engineering Team** (15 engineers): $2,250,000
-- **Infrastructure**: $180,000
-- **Third-party Services**: $90,000
-- **Testing & QA**: $150,000
-- **Security Audits**: $60,000
-- **Total Development**: $2,730,000
-
-### Ongoing Operational Costs (Monthly)
-- **Infrastructure**: $20,000
-- **AI API Costs**: $30,000
-- **Monitoring & Security**: $5,000
-- **Total Monthly**: $55,000
-
-### ROI Projection
-- **Break-even**: Month 15
-- **3-Year Revenue**: $12M
-- **3-Year Profit**: $4.5M
-
----
 
 ## Conclusion
 
