@@ -290,6 +290,51 @@ export const GraphAnnotation = MessagesZodState.extend({
     },
   }),
 
+  /**
+   * Currently active agents in the multi-agent session
+   */
+  activeAgents: withLangGraph(z.custom<Map<string, AgentProfile>>(), {
+    reducer: {
+      schema: z.custom<Map<string, AgentProfile>>(),
+      fn: (state, update) => new Map([...state || new Map(), ...update || new Map()]),
+    },
+    default: () => new Map(),
+  }),
+
+  /**
+   * Shared collaboration context for multi-agent coordination
+   */
+  collaborationContext: withLangGraph(z.custom<SharedContext>(), {
+    reducer: {
+      schema: z.custom<SharedContext>(),
+      fn: (state, update) => ({ ...state, ...update }),
+    },
+    default: () => ({
+      currentTaskId: '',
+      knowledgeBase: {},
+      communicationHistory: [],
+      workspaceState: {},
+    }),
+  }),
+
+  /**
+   * Active task delegations between agents
+   */
+  taskDelegations: withLangGraph(z.custom<TaskDelegation[]>(), {
+    reducer: {
+      schema: z.custom<TaskDelegation[]>(),
+      fn: (state, update) => {
+        // Merge delegations, updating existing ones by ID
+        const existingMap = new Map(state?.map(d => [d.id, d]) || []);
+        update?.forEach(delegation => {
+          existingMap.set(delegation.id, delegation);
+        });
+        return Array.from(existingMap.values());
+      },
+    },
+    default: () => [],
+  }),
+
   // ---NOT USED---
   ui: z
     .custom<UIMessage[]>()
@@ -499,6 +544,34 @@ export const GraphConfigurationMetadata: {
       type: "hidden",
     },
   },
+  enableMultiAgent: {
+    x_open_swe_ui_config: {
+      type: "boolean",
+      default: false,
+      description:
+        "Enable multi-agent collaboration features. When enabled, specialized agents can collaborate on tasks.",
+    },
+  },
+  maxConcurrentAgents: {
+    x_open_swe_ui_config: {
+      type: "number",
+      default: 5,
+      min: 1,
+      max: 20,
+      description:
+        "Maximum number of agents that can be active simultaneously in a session.",
+    },
+  },
+  agentCollaborationTimeout: {
+    x_open_swe_ui_config: {
+      type: "number",
+      default: 300,
+      min: 30,
+      max: 1800,
+      description:
+        "Timeout in seconds for agent collaboration tasks before escalation or fallback.",
+    },
+  },
 };
 
 export const GraphConfiguration = z.object({
@@ -677,6 +750,30 @@ export const GraphConfiguration = z.object({
   maxReviewCount: withLangGraph(z.number().optional(), {
     metadata: GraphConfigurationMetadata.maxReviewCount,
   }),
+
+  /**
+   * Enable multi-agent collaboration features.
+   * @default false
+   */
+  enableMultiAgent: withLangGraph(z.boolean().optional(), {
+    metadata: GraphConfigurationMetadata.enableMultiAgent,
+  }),
+
+  /**
+   * Maximum number of agents that can be active simultaneously.
+   * @default 5
+   */
+  maxConcurrentAgents: withLangGraph(z.number().optional(), {
+    metadata: GraphConfigurationMetadata.maxConcurrentAgents,
+  }),
+
+  /**
+   * Timeout in seconds for agent collaboration tasks.
+   * @default 300
+   */
+  agentCollaborationTimeout: withLangGraph(z.number().optional(), {
+    metadata: GraphConfigurationMetadata.agentCollaborationTimeout,
+  }),
 });
 
 export type GraphConfig = LangGraphRunnableConfig<
@@ -690,3 +787,369 @@ export interface AgentSession {
   threadId: string;
   runId: string;
 }
+
+// Multi-Agent Collaboration Types
+
+/**
+ * Specialized agent roles for multi-agent collaboration
+ */
+export type AgentRole =
+  | 'code_reviewer'
+  | 'test_engineer'
+  | 'documentation'
+  | 'security'
+  | 'architect'
+  | 'code_smell_detector'
+  | 'bug_pattern_analyzer'
+  | 'performance_optimizer'
+  | 'architectural_reviewer'
+  | 'solid_principles_validator';
+
+/**
+ * Collaboration rules defining how agents interact
+ */
+export interface CollaborationRule {
+  /**
+   * Trigger condition for collaboration
+   */
+  trigger: string;
+  /**
+   * Target agent roles to collaborate with
+   */
+  targetRoles: AgentRole[];
+  /**
+   * Priority level for collaboration requests
+   */
+  priority: 'low' | 'medium' | 'high' | 'critical';
+}
+
+/**
+ * Review thresholds for code quality validation
+ */
+export interface ReviewThresholds {
+  /**
+   * Target false positive rate for reviews (<5%)
+   */
+  falsePositiveRate: number;
+  /**
+   * Maximum response time for reviews
+   * Standard: <30s, Complex: <300s (5 minutes)
+   */
+  responseTime: number;
+  /**
+   * Code coverage requirements
+   */
+  coverageRequirements: {
+    /**
+     * Unit test coverage (80-90%)
+     */
+    unit: number;
+    /**
+     * Critical path coverage (95%)
+     */
+    critical: number;
+  };
+  /**
+   * Complexity limits for code quality
+   */
+  complexityLimits: {
+    /**
+     * Maximum cyclomatic complexity per method (<10)
+     */
+    method: number;
+    /**
+     * Maximum total complexity per class (<50)
+     */
+    class: number;
+  };
+}
+
+/**
+ * Agent profile defining capabilities and configuration
+ */
+export interface AgentProfile {
+  /**
+   * Unique identifier for the agent
+   */
+  id: string;
+  /**
+   * Agent role specialization
+   */
+  role: AgentRole;
+  /**
+   * Specific areas of specialization
+   */
+  specialization: string[];
+  /**
+   * Available tools for the agent
+   */
+  tools: string[];
+  /**
+   * Rules for collaborating with other agents
+   */
+  collaborationRules: CollaborationRule[];
+  /**
+   * Review quality thresholds (optional)
+   */
+  reviewThresholds?: ReviewThresholds;
+  /**
+   * Agent status
+   */
+  status: 'active' | 'idle' | 'busy' | 'offline';
+  /**
+   * When the agent was created
+   */
+  createdAt: number;
+  /**
+   * Last activity timestamp
+   */
+  lastActiveAt: number;
+}
+
+/**
+ * Shared context for agent collaboration
+ */
+export interface SharedContext {
+  /**
+   * Current task being worked on
+   */
+  currentTaskId: string;
+  /**
+   * Shared knowledge base
+   */
+  knowledgeBase: Record<string, unknown>;
+  /**
+   * Communication history between agents
+   */
+  communicationHistory: AgentMessage[];
+  /**
+   * Shared workspace state
+   */
+  workspaceState: Record<string, unknown>;
+}
+
+/**
+ * Message structure for inter-agent communication
+ */
+export interface AgentMessage {
+  /**
+   * Unique message identifier
+   */
+  id: string;
+  /**
+   * Sender agent ID
+   */
+  fromAgentId: string;
+  /**
+   * Recipient agent ID (or broadcast if undefined)
+   */
+  toAgentId?: string;
+  /**
+   * Message type
+   */
+  type: 'request' | 'response' | 'notification' | 'collaboration';
+  /**
+   * Message content
+   */
+  content: string;
+  /**
+   * Additional data payload
+   */
+  data?: Record<string, unknown>;
+  /**
+   * Message timestamp
+   */
+  timestamp: number;
+  /**
+   * Message priority
+   */
+  priority: 'low' | 'medium' | 'high' | 'critical';
+}
+
+/**
+ * Task delegation information
+ */
+export interface TaskDelegation {
+  /**
+   * Unique delegation identifier
+   */
+  id: string;
+  /**
+   * Task or subtask being delegated
+   */
+  taskId: string;
+  /**
+   * Agent delegating the task
+   */
+  delegatingAgentId: string;
+  /**
+   * Agent receiving the task
+   */
+  assignedAgentId: string;
+  /**
+   * Delegation status
+   */
+  status: 'pending' | 'accepted' | 'in_progress' | 'completed' | 'rejected';
+  /**
+   * Task description
+   */
+  description: string;
+  /**
+   * Expected completion time
+   */
+  expectedCompletionTime?: number;
+  /**
+   * Actual completion time
+   */
+  actualCompletionTime?: number;
+  /**
+   * Task result or output
+   */
+  result?: string;
+  /**
+   * When the task was delegated
+   */
+  createdAt: number;
+  /**
+   * Last update timestamp
+   */
+  updatedAt: number;
+}
+
+/**
+ * Agent performance metrics for quality tracking
+ */
+export interface AgentMetrics {
+  /**
+   * Agent identifier
+   */
+  agentId: string;
+  /**
+   * Total tasks completed
+   */
+  tasksCompleted: number;
+  /**
+   * Average response time in milliseconds
+   */
+  avgResponseTime: number;
+  /**
+   * Success rate (0-1)
+   */
+  successRate: number;
+  /**
+   * False positive rate for review agents (0-1)
+   */
+  falsePositiveRate?: number;
+  /**
+   * Quality score (0-100)
+   */
+  qualityScore: number;
+  /**
+   * Last updated timestamp
+   */
+  lastUpdated: number;
+}
+
+/**
+ * Individual step in a collaboration workflow
+ */
+export interface WorkflowStep {
+  /**
+   * Step identifier
+   */
+  id: string;
+  /**
+   * Agent role responsible for this step
+   */
+  agentRole: AgentRole;
+  /**
+   * Step action description
+   */
+  action: string;
+  /**
+   * Dependencies on other steps
+   */
+  dependsOn: string[];
+  /**
+   * Expected completion time in seconds
+   */
+  expectedDuration: number;
+}
+
+/**
+ * Collaboration pattern for coordinated multi-agent work
+ */
+export interface CollaborationPattern {
+  /**
+   * Pattern identifier
+   */
+  id: string;
+  /**
+   * Pattern name
+   */
+  name: string;
+  /**
+   * Required agent roles for this pattern
+   */
+  requiredRoles: AgentRole[];
+  /**
+   * Execution sequence or workflow
+   */
+  workflow: WorkflowStep[];
+  /**
+   * Pattern triggers
+   */
+  triggers: string[];
+}
+
+/**
+ * Agent registry entry for capability discovery
+ */
+export interface AgentRegistryEntry {
+  /**
+   * Agent profile
+   */
+  profile: AgentProfile;
+  /**
+   * Agent capabilities and metadata
+   */
+  capabilities: string[];
+  /**
+   * Performance metrics
+   */
+  metrics: AgentMetrics;
+  /**
+   * Registration timestamp
+   */
+  registeredAt: number;
+}
+
+/**
+ * Extended GraphState supporting multi-agent collaboration
+ * 
+ * @deprecated Use GraphState directly with multi-agent fields
+ * This interface is kept for backward compatibility
+ */
+export interface MultiAgentState extends GraphState {
+  /**
+   * Currently active agents in the session
+   */
+  activeAgents: Map<string, AgentProfile>;
+  /**
+   * Shared collaboration context
+   */
+  collaborationContext: SharedContext;
+  /**
+   * Active task delegations
+   */
+  taskDelegations: TaskDelegation[];
+}
+
+/**
+ * Utility type for multi-agent graph updates
+ */
+export type MultiAgentGraphUpdate = Partial<{
+  activeAgents: Map<string, AgentProfile>;
+  collaborationContext: Partial<SharedContext>;
+  taskDelegations: TaskDelegation[];
+}> & GraphUpdate;
